@@ -1,0 +1,1410 @@
+---
+title: "Audit des données exogene de sanofi"
+output: html_document
+---
+  
+Analyse des variables exogènes pour la prévision des ventes sanofi
+
+
+## Données d'activité commerciale
+
+Avant de rentrer dans le vif du sujet, installons quelques packages necessaires pour l'analyse :
+```{r, message = F}
+if (!require(Hmisc)){install.packages("Hmisc")} ; library(Hmisc)
+if (!require(randomForest)){install.packages("randomForest")} ; library("randomForest")
+if (!require(ggplot2)){install.packages("randomForest")} ; library("ggplot2")
+if (!require(dplyr)){install.packages("dplyr")} ; library("dplyr")
+if (!require(sqldf)){install.packages("sqldf")} ; library("sqldf")
+if (!require(TTR)){install.packages("TTR")} ; library("TTR")
+if (!require(stringi)){install.packages("stringi")} ; library("stringi")
+if (!require(data.table)){install.packages("data.table")} ; library("data.table")
+if (!require(plotly)){install.packages("plotly")} ; library("plotly")
+```
+
+Le datasets sont sous format `.txt`. Vous pouvez les importer dans l'espace de travail R avec le code ci-dessous.
+Pensez a changer le chemin du dossier contenant les data : `dossier_data`.
+```{r, message= F, warning= F}
+dossier_data = "C:/Users/Data 1/Documents/SANOFI/Activité_Univers GRC Global"
+c_actcom2013 = paste0(dossier_data, "/BV-activité 2013 Act.txt")
+actcom2013 = read.table(c_actcom2013, sep = "\t", header = T, fill = T, quote = "")
+
+c_actcom2014 = paste0(dossier_data, "/BV-activité 2014 Act.txt")
+actcom2014 = read.table(c_actcom2014, sep = "\t", header = T, fill = T, quote = "")
+
+c_actcom2015 = paste0(dossier_data, "/BV-activité 2015 Act.txt")
+actcom2015 = read.table(c_actcom2015, sep = "\t", header = T, fill = T, quote = "")
+
+```
+
+ on va appender les tables
+
+```{r, message= F, warning= F}
+actcom<-rbind(actcom2013,actcom2014)
+actcom<-rbind(actcom,actcom2015)
+
+```
+
+On garde les prospect qui nous interesse :on vire les congés et les manifestations
+
+```{r, message= F, warning= F}
+actcom<-actcom[actcom$ACT...Libellé.activité=='Prospection',]
+
+summary(actcom)
+```
+
+
+ On compte le nombre de prospection par mois
+ 
+```{r, message= F, warning= F}
+names(actcom)[names(actcom) == 'ACT...Année.mois'] <- 'ACT_Annee_mois'
+names(actcom)[names(actcom) == 'ACT...Libellé.activité'] <- 'ACT_Libelle_activité'
+actcom_mois<-sqldf("SELECT ACT_Annee_mois as mois, count(ACT_Libelle_activité) as prospection from actcom group by ACT_Annee_mois;")
+
+plot(actcom_mois$prospection,type='l',col='red')
+```
+
+
+## Analyse descriptive : On enlève la tendance et la saisonnalité sur les séries de ventes
+
+### Importation des séries de vente
+
+```{r, message= F, warning= F}
+setwd("C:/Users/Data 1/Desktop/SANOFI/Validation des models/Validation erreurs/tend saiso")
+
+ventes<-read.table("ventes_avec_pub.csv", sep = ";", header = T, fill = T, quote = "", encoding = 'UTF-8')
+ventes<-ventes[ventes$anneemois<201601,]
+```
+
+### Fonction permettant de désaisonnaliser et de detrender chaquee série
+
+```{r, message= F, warning= F}
+detrend <- function(ventes,marque='TOPLEXIL_BU') {
+toplexil<-ventes[ventes$segment_produit==marque,]
+
+#var<-c(ventes$segment_produit,ventes$anneemois,ventes$CAnet)
+#toplexil<-toplexil[,c(8,9,10)]
+
+toplexil$date <- stri_sub(as.character(toplexil$anneemois), 5,6)
+
+toplexil<-unique(toplexil)
+
+toplexil<-toplexil[order(toplexil[,2]),]
+
+toplex <- ts(toplexil[,3], frequency=12, start=c(2012,1))
+toplex
+
+#plot.ts(toplex)
+
+toplex_components <- decompose(toplex)
+
+plot(toplex_components)
+return(toplex_components)
+
+}
+
+#table(ventes$segment_produit)
+```
+
+### Fonction permettant de désaisonnaliser et de detrender chaquee série
+ASPEGIC
+
+```{r, message= F, warning= F}
+aspegique<-detrend(ventes,marque='ASPEGIC/MIGPRIV')
+
+```
+
+ATURGYL
+```{r, message= F, warning= F}
+ATURGYL<-detrend(ventes,marque='ATURGYL')
+
+```
+
+AVIBON
+```{r, message= F, warning= F}
+AVIBON<-detrend(ventes,marque='AVIBON')
+
+```
+
+```{r, message= F, warning= F}
+BALSOFUMINE<-detrend(ventes,marque='BALSOFUMINE')
+
+```
+
+BRONCHOKOD-RHINATHIOL-BRONCHOKOD
+```{r, message= F, warning= F}
+BRONCHOKOD_RHINATHIOL_BRONCHOKOD<-detrend(ventes,marque='BRONCHOKOD & RHINATHIOL / BRONCHOKOD')
+
+```
+
+
+BRONCHOKOD-RHINATHIOL-RHINATHIOL
+
+```{r, message= F, warning= F}
+BRONCHOKOD_RHINATHIOL_RHINATHIOL<-detrend(ventes,marque='BRONCHOKOD & RHINATHIOL / RHINATHIOL')
+
+```
+
+CODOLIPRANE
+```{r, message= F, warning= F}
+CODOLIPRANE_BU<-detrend(ventes,marque='CODOLIPRANE_BU')
+
+```
+
+DECONTRACTYL
+```{r, message= F, warning= F}
+DECONTRACT<-detrend(ventes,marque='DECONTRACT')
+
+```
+
+DERMACHROM
+```{r, message= F, warning= F}
+DERMACHROM<-detrend(ventes,marque='DERMACHROM')
+
+```
+
+DIAMOX
+```{r, message= F, warning= F}
+DIAMOX<-detrend(ventes,marque='DIAMOX')
+
+```
+
+DOLI-ETAT-GRIPPAL
+```{r, message= F, warning= F}
+#DOLI_ETAT_GRIPPAL<-detrend(ventes,marque='DOLI_ETAT_GRIPPAL')
+
+```
+
+DOLI-MAUX-DE-GORGE
+```{r, message= F, warning= F}
+DOLI_MAUX_DE_GORGE<-detrend(ventes,marque='DOLI_MAUX_DE_GORGE')
+
+```
+
+DOLIALLERGIE
+```{r, message= F, warning= F}
+DOLIALLERGIE<-detrend(ventes,marque='DOLIALLERGIE')
+
+```
+
+DOLIPRANE_GENERALIST
+DOLIALLERGIE
+```{r, message= F, warning= F}
+DOLIPRANE_GENERALIST<-detrend(ventes,marque='DOLIPRANE GENERALIST')
+
+```
+
+DOLIRHUME
+```{r, message= F, warning= F}
+DOLIRHUME<-detrend(ventes,marque='DOLIRHUME')
+
+```
+
+ENDOTELON_BU
+
+```{r, message= F, warning= F}
+ENDOTELON_BU<-detrend(ventes,marque='ENDOTELON_BU')
+
+```
+
+ERCEFURYL
+```{r, message= F, warning= F}
+ERCEFURYL<-detrend(ventes,marque='ERCEFURYL')
+
+```
+
+ETIOVEN
+```{r, message= F, warning= F}
+ETIOVEN<-detrend(ventes,marque='ETIOVEN')
+
+```
+
+HEMOCLAR
+```{r, message= F, warning= F}
+HEMOCLAR<-detrend(ventes,marque='HEMOCLAR')
+
+```
+
+HEPTAMYL
+```{r, message= F, warning= F}
+HEPTAMYL<-detrend(ventes,marque='HEPTAMYL')
+
+```
+
+HEXOMEDINE-BU
+```{r, message= F, warning= F}
+HEXOMEDINE_BU<-detrend(ventes,marque='HEXOMEDINE_BU')
+
+```
+
+
+IPRAALOX
+```{r, message= F, warning= F}
+IPRAALOX<-detrend(ventes,marque='IPRAALOX')
+
+```
+
+
+MAALOX
+```{r, message= F, warning= F}
+MAALOX<-detrend(ventes,marque='MAALOX')
+
+```
+
+MAGNE-B6-MAGNE_VIE
+```{r, message= F, warning= F}
+MAGNE_B6_MAGNE_VIE<-detrend(ventes,marque='MAGNE B6 & MAGNE VIE')
+
+```
+
+MAXILASE_BU
+
+```{r, message= F, warning= F}
+MAXILASE_BU<-detrend(ventes,marque='MAXILASE_BU')
+
+```
+
+MITOCORTYL
+```{r, message= F, warning= F}
+MITOCORTYL<-detrend(ventes,marque='MITOCORTYL')
+
+```
+
+MITOSYL
+```{r, message= F, warning= F}
+MITOSYL<-detrend(ventes,marque='MITOSYL')
+
+```
+
+NAUTAMINE
+```{r, message= F, warning= F}
+NAUTAMINE<-detrend(ventes,marque='NAUTAMINE')
+
+```
+
+NOVA-HEALTH-DIVERS-NOVA_SANTE
+```{r, message= F, warning= F}
+NOVA_HEALTH_DIVERS_NOVA_SANTE<-detrend(ventes,marque='NOVA HEALTH / DIVERS NOVA SANTE')
+
+```
+
+NOVA-HEALTH-NOVABIOSTIM
+```{r, message= F, warning= F}
+NOVA_HEALTH_NOVABIOSTIM<-detrend(ventes,marque='NOVA HEALTH / NOVABIOSTIM')
+
+```
+
+NOVA_HEALTH_NOVALGIC
+```{r, message= F, warning= F}
+NOVA_HEALTH_NOVALGIC<-detrend(ventes,marque='NOVA HEALTH / NOVALGIC')
+```
+NOVA_HEALTH_NOVANIGHT
+```{r, message= F, warning= F}
+NOVA_HEALTH_NOVANIGHT<-detrend(ventes,marque='NOVA HEALTH / NOVANIGHT')
+```
+NOVA_HEALTH_NOVASTEROL
+```{r, message= F, warning= F}
+NOVA_HEALTH_NOVASTEROL<-detrend(ventes,marque='NOVA HEALTH / NOVASTEROL')
+```
+
+NOVA_HEALTH_NOVASTIM
+```{r, message= F, warning= F}
+NOVA_HEALTH_NOVASTIM<-detrend(ventes,marque='NOVA HEALTH / NOVASTIM')
+```
+NOVA_HEALTH_NOVAZEN
+```{r, message= F, warning= F}
+NOVA_HEALTH_NOVAZEN<-detrend(ventes,marque='NOVA HEALTH / NOVAZEN')
+```
+
+NOVALAC_BU
+```{r, message= F, warning= F}
+#NOVALAC_BU<-detrend(ventes,marque='NOVALAC_BU')
+```
+OENOBIOL_BU_ACTIV_OPC
+```{r, message= F, warning= F}
+OENOBIOL_BU_ACTIV_OPC<-detrend(ventes,marque='OENOBIOL_BU / ACTIV OPC')
+```
+OENOBIOL_BU_ANTI_AGE
+```{r, message= F, warning= F}
+OENOBIOL_BU_ANTI_AGE<-detrend(ventes,marque='OENOBIOL_BU / ANTI-AGE')
+```
+
+OENOBIOL_BU_ANTI_CHUTE
+```{r, message= F, warning= F}
+OENOBIOL_BU_ANTI_CHUTE<-detrend(ventes,marque='OENOBIOL_BU / ANTI-CHUTE')
+```
+
+OENOBIOL_BU_ANTI_RIDES
+```{r, message= F, warning= F}
+OENOBIOL_BU_ANTI_RIDES<-detrend(ventes,marque='OENOBIOL_BU / ANTI-RIDES')
+```
+OENOBIOL_BU_AQUADRAINANT
+```{r, message= F, warning= F}
+OENOBIOL_BU_AQUADRAINANT<-detrend(ventes,marque='OENOBIOL_BU / AQUADRAINANT')
+```
+OENOBIOL_BU_AUTOBRONZANT
+```{r, message= F, warning= F}
+#OENOBIOL_BU_AUTOBRONZANT<-detrend(ventes,marque='OENOBIOL_BU / AUTOBRONZANT')
+```
+
+OENOBIOL_BU_BEAUTE_DES_CHEVEUX
+```{r, message= F, warning= F}
+OENOBIOL_BU_BEAUTE_DES_CHEVEUX<-detrend(ventes,marque='OENOBIOL_BU / BEAUTE DES CHEVEUX')
+```
+
+OENOBIOL_BU_BEAUTIFIC_OEN_ENERGY
+```{r, message= F, warning= F}
+OENOBIOL_BU_BEAUTIFIC_OEN_ENERGY<-detrend(ventes,marque='OENOBIOL_BU / BEAUTIFIC OEN ENERGY')
+```
+OENOBIOL_BU_BEAUTIFIC_OEN_HAIR_A
+```{r, message= F, warning= F}
+#OENOBIOL_BU_BEAUTIFIC_OEN_HAIR_A<-detrend(ventes,marque='OENOBIOL_BU / BEAUTIFIC OEN HAIR A')
+```
+
+OENOBIOL_BU_BEAUTIFIC_OENOBIOL_A
+```{r, message= F, warning= F}
+#OENOBIOL_BU_BEAUTIFIC_OENOBIOL_A<-detrend(ventes,marque='OENOBIOL_BU / BEAUTIFIC OENOBIOL A')
+```
+
+
+OENOBIOL_BU_BEAUTIFIC_OENOBIOL_S
+```{r, message= F, warning= F}
+#OENOBIOL_BU_BEAUTIFIC_OENOBIOL_S<-detrend(ventes,marque='OENOBIOL_BU / BEAUTIFIC OENOBIOL S')
+```
+OENOBIOL_BU_BOUFFEES_DE_CHALEUR
+```{r, message= F, warning= F}
+OENOBIOL_BU_BOUFFEES_DE_CHALEUR<-detrend(ventes,marque='OENOBIOL_BU / BOUFFEES DE CHALEUR')
+```
+
+OENOBIOL_BU_CAPTEUR
+```{r, message= F, warning= F}
+#OENOBIOL_BU_CAPTEUR<-detrend(ventes,marque='OENOBIOL_BU / CAPTEUR')
+```
+
+OENOBIOL_BU_CELLULITE
+```{r, message= F, warning= F}
+OENOBIOL_BU_CELLULITE<-detrend(ventes,marque='OENOBIOL_BU / CELLULITE')
+```
+
+OENOBIOL_BU_CONFORT_DIGESTIF
+```{r, message= F, warning= F}
+OENOBIOL_BU_CONFORT_DIGESTIF<-detrend(ventes,marque='OENOBIOL_BU / CONFORT DIGESTIF')
+```
+
+OENOBIOL_BU_DESTRESSANT
+```{r, message= F, warning= F}
+OENOBIOL_BU_DESTRESSANT<-detrend(ventes,marque='OENOBIOL_BU / DESTRESSANT')
+```
+
+OENOBIOL_BU_DETOX
+```{r, message= F, warning= F}
+OENOBIOL_BU_DETOX<-detrend(ventes,marque='OENOBIOL_BU / DETOX')
+```
+
+OENOBIOL_BU_DIET_MINCEUR
+```{r, message= F, warning= F}
+OENOBIOL_BU_DIET_MINCEUR<-detrend(ventes,marque='OENOBIOL_BU / DIET MINCEUR')
+```
+
+OENOBIOL_BU_DIV_SANTE_BIEN_ETRE
+```{r, message= F, warning= F}
+OENOBIOL_BU_DIV_SANTE_BIEN_ETRE<-detrend(ventes,marque='OENOBIOL_BU / DIV. SANTE&BIEN ETRE')
+```
+
+OENOBIOL_BU_DIVERS_CAPILLAIRE
+```{r, message= F, warning= F}
+#OENOBIOL_BU_DIVERS_CAPILLAIRE<-detrend(ventes,marque='OENOBIOL_BU / DIVERS CAPILLAIRE')
+```
+
+```{r, message= F, warning= F}
+#OENOBIOL_BU_DIVERS_FEMME_45<-detrend(ventes,marque='OENOBIOL_BU / DIVERS FEMME 45+')
+```
+
+OENOBIOL_BU_DIVERS_MINCEUR
+```{r, message= F, warning= F}
+OENOBIOL_BU_DIVERS_MINCEUR<-detrend(ventes,marque='OENOBIOL_BU / DIVERS MINCEUR')
+```
+
+
+OENOBIOL_BU_DIVERS_OENOBIOL
+```{r, message= F, warning= F}
+OENOBIOL_BU_DIVERS_OENOBIOL<-detrend(ventes,marque='OENOBIOL_BU / DIVERS OENOBIOL')
+```
+
+OENOBIOL_BU_DIVERS_PEAU
+```{r, message= F, warning= F}
+OENOBIOL_BU_DIVERS_PEAU<-detrend(ventes,marque='OENOBIOL_BU / DIVERS PEAU')
+```
+
+OENOBIOL_BU_DIVERS_SOLAIRE
+```{r, message= F, warning= F}
+#OENOBIOL_BU_DIVERS_SOLAIRE<-detrend(ventes,marque='OENOBIOL_BU / DIVERS SOLAIRE')
+```
+
+OENOBIOL_BU_ECLAT
+```{r, message= F, warning= F}
+OENOBIOL_BU_ECLAT<-detrend(ventes,marque='OENOBIOL_BU / ECLAT')
+```
+OENOBIOL_BU_FEMME45_ANTI_AGE
+```{r, message= F, warning= F}
+OENOBIOL_BU_FEMME45_ANTI_AGE<-detrend(ventes,marque='OENOBIOL_BU / FEMME45+ANTI AGE')
+```
+
+OENOBIOL_BU_FORTIFIANT
+```{r, message= F, warning= F}
+OENOBIOL_BU_FORTIFIANT<-detrend(ventes,marque='OENOBIOL_BU / FORTIFIANT')
+```
+OENOBIOL_BU_GLUCOMANANE
+```{r, message= F, warning= F}
+OENOBIOL_BU_GLUCOMANANE<-detrend(ventes,marque='OENOBIOL_BU / GLUCOMANANE')
+```
+OENOBIOL_BU_PEAU_d_ORANGE
+```{r, message= F, warning= F}
+#OENOBIOL_BU_PEAU_d_ORANGE<-detrend(ventes,marque="OENOBIOL_BU / PEAU d'ORANGE")
+```
+
+OENOBIOL_BU_PERFORMANCE
+```{r, message= F, warning= F}
+#OENOBIOL_BU_PERFORMANCE<-detrend(ventes,marque='OENOBIOL_BU_PERFORMANCE')
+```
+
+OENOBIOL_BU_PERTE_DE_POIDS
+```{r, message= F, warning= F}
+OENOBIOL_BU_PERTE_DE_POIDS<-detrend(ventes,marque='OENOBIOL_BU / PERTE DE POIDS')
+```
+OENOBIOL_BU_PURIFIANT
+```{r, message= F, warning= F}
+OENOBIOL_BU_PURIFIANT<-detrend(ventes,marque='OENOBIOL_BU / PURIFIANT')
+```
+OENOBIOL_BU_REGARD
+```{r, message= F, warning= F}
+OENOBIOL_BU_REGARD<-detrend(ventes,marque='OENOBIOL_BU / REGARD')
+```
+
+OENOBIOL_BU_REMODELANT
+```{r, message= F, warning= F}
+OENOBIOL_BU_REMODELANT<-detrend(ventes,marque='OENOBIOL_BU / REMODELANT')
+```
+
+OENOBIOL_BU_RETENTION_D_EAU
+```{r, message= F, warning= F}
+OENOBIOL_BU_RETENTION_D_EAU<-detrend(ventes,marque="OENOBIOL_BU / RETENTION D'EAU")
+```
+OENOBIOL_BU_SOL_INT_NUTRI_PROT
+```{r, message= F, warning= F}
+OENOBIOL_BU_SOL_INT_NUTRI_PROT<-detrend(ventes,marque='OENOBIOL_BU / SOL. INT. NUTRI PROT')
+```
+OENOBIOL_BU_SOL_INTENSIF_HYDRAT
+```{r, message= F, warning= F}
+OENOBIOL_BU_SOL_INTENSIF_HYDRAT<-detrend(ventes,marque='OENOBIOL_BU / SOL.INTENSIF HYDRAT.')
+```
+
+OENOBIOL_BU_SOL_INTENSIF_PROTEC
+```{r, message= F, warning= F}
+OENOBIOL_BU_SOL_INTENSIF_PROTEC<-detrend(ventes,marque='OENOBIOL_BU / SOL.INTENSIF PROTEC.')
+```
+OENOBIOL_BU_SOL_INTENSIF_TOLER
+```{r, message= F, warning= F}
+OENOBIOL_BU_SOL_INTENSIF_TOLER<-detrend(ventes,marque='OENOBIOL_BU / SOL.INTENSIF TOLER.')
+```
+OENOBIOL_BU_SOLAIRE_INT_ANTI_AGE
+```{r, message= F, warning= F}
+OENOBIOL_BU_SOLAIRE_INT_ANTI_AGE<-detrend(ventes,marque='OENOBIOL_BU / SOLAIRE INT.ANTI AGE')
+```
+OENOBIOL_BU_SOLAIRE_INTENSIF
+```{r, message= F, warning= F}
+OENOBIOL_BU_SOLAIRE_INTENSIF<-detrend(ventes,marque='OENOBIOL_BU / SOLAIRE INTENSIF')
+```
+OENOBIOL_BU_TOP_SLIM
+```{r, message= F, warning= F}
+OENOBIOL_BU_TOP_SLIM<-detrend(ventes,marque='OENOBIOL_BU / TOP SLIM')
+```
+OENOBIOL_BU_TOP_SLIM_LIPOREDUCTE
+```{r, message= F, warning= F}
+#OENOBIOL_BU_TOP_SLIM_LIPOREDUCTE<-detrend(ventes,marque='OENOBIOL_BU / TOP SLIM LIPOREDUCTE')
+```
+OENOBIOL_BU_ULTRA_HYDRATANT
+```{r, message= F, warning= F}
+OENOBIOL_BU_ULTRA_HYDRATANT<-detrend(ventes,marque='OENOBIOL_BU / ULTRA HYDRATANT')
+```
+OENOBIOL_BU_VENTRE_PLAT
+```{r, message= F, warning= F}
+OENOBIOL_BU_VENTRE_PLAT<-detrend(ventes,marque='OENOBIOL_BU / VENTRE PLAT')
+```
+OENOBIOL_BU_VOLUMATEUR
+```{r, message= F, warning= F}
+OENOBIOL_BU_VOLUMATEUR<-detrend(ventes,marque='OENOBIOL_BU / VOLUMATEUR')
+```
+
+OTCDIV
+```{r, message= F, warning= F}
+OTCDIV<-detrend(ventes,marque='OTCDIV')
+```
+PHYSIOMER
+```{r, message= F, warning= F}
+PHYSIOMER<-detrend(ventes,marque='PHYSIOMER')
+```
+POLYKARAYA
+```{r, message= F, warning= F}
+POLYKARAYA<-detrend(ventes,marque='POLYKARAYA')
+```
+POLYSILANE
+```{r, message= F, warning= F}
+POLYSILANE<-detrend(ventes,marque='POLYSILANE')
+```
+
+```{r, message= F, warning= F}
+RESPILENE_BU<-detrend(ventes,marque='RESPILENE_BU')
+```
+SOLUTRICINE
+```{r, message= F, warning= F}
+SOLUTRICINE<-detrend(ventes,marque='SOLUTRICINE')
+```
+
+SORBITOL
+```{r, message= F, warning= F}
+SORBITOL<-detrend(ventes,marque='SORBITOL')
+```
+SPECIAFOLDINE
+```{r, message= F, warning= F}
+SPECIAFOLDINE<-detrend(ventes,marque='SPECIAFOLDINE')
+```
+
+```{r, message= F, warning= F}
+TOPLEXIL_BU<-detrend(ventes,marque='TOPLEXIL_BU')
+```
+
+TROPHIRES
+```{r, message= F, warning= F}
+TROPHIRES<-detrend(ventes,marque='TROPHIRES')
+```
+VADILEX
+```{r, message= F, warning= F}
+VADILEX<-detrend(ventes,marque='VADILEX')
+```
+
+VITB12
+```{r, message= F, warning= F}
+VITB12<-detrend(ventes,marque='VITB12')
+```
+
+YOHIMBINE
+```{r, message= F, warning= F}
+#YOHIMBINE<-detrend(ventes,marque='YOHIMBINE')
+```
+
+### Preparation de la table contenant les tendances et les saisonnalités
+
+Dans cette partie, nous allons récupérer les sortie de R que nous avons eu.
+Nous les preprocessons pour pouvoir les intégrer dans un dataframe
+Nous fusionnons toutes les dataframes que nous avons obtenu et nous travaillerons sur la table season pour la suite
+
+```{r, message= F, warning= F}
+
+ fusion<-function(aspegique,marque='ASPEGIC/MIGPRIV'){
+   date<-as.data.frame(unique(ventes$anneemois))
+   date<-as.data.frame(date[order(date[,1]),])
+   
+  
+   a<-as.data.frame(aspegique$x)
+   names(a)<-'observed'
+   
+   b<-as.data.frame(aspegique$seasonal)
+   names(b)<-'seasonal'
+   
+   c<-as.data.frame(aspegique$trend)
+   names(c)<-'trend'
+   
+   d<-as.data.frame(aspegique$random)
+   names(d)<-'random'
+   
+   date<-as.data.frame(date[1:nrow(a),])
+   names(date)<-'anneemois'
+   
+   e<-cbind(date,list(a,b,c,d))
+   e$annee <- stri_sub(as.character(e$anneemois), 1,4)
+   e$segment_produit<-marque
+   e$diff_saiso<-e$observed-e$seasonal
+   moy<- as.data.frame(tapply(e$diff_saiso, as.character(e$annee), mean, na.rm=TRUE))
+   names(moy)<-'annual_mean'
+   moy$annee<-rownames(moy)
+   
+   e<-merge(e, moy,by="annee",all.x = T)
+   
+   e$diff_estimated<-e$diff_saiso*(e$diff_saiso/e$annual_mean)
+   
+   sum<- as.data.frame(tapply(e$diff_estimated, as.character(e$annee), mean, na.rm=TRUE))
+   names(sum)<-'annual_mean_diff_estimated'
+   sum$annee<-rownames(sum)
+   
+   e<-merge(e, sum,by="annee",all.x = T)
+   
+   #e$mean_diff<-mean(e[e$annee,]$diff_saiso,na.rm = T)
+   
+   e$variability<-(e$diff_estimated/e$annual_mean_diff_estimated)-1
+   #e$abs_error<-abs(e$random)
+   #e$min_error<-abs(min(e$random,na.rm = T))
+   #e$mean_error<-mean(e$abs_error,na.rm = T)
+   #e$error_trans<-e$random+e$min_error
+   #e$mean_error_trans<-mean(e$error_trans,na.rm = T)
+   return(e)
+ }
+```
+
+```{r, message= F, warning= F}
+
+ aspegique<-fusion(aspegique,marque='ASPEGIC/MIGPRIV')
+ ATURGYL<-fusion(ATURGYL,marque='ATURGYL')
+ AVIBON<-fusion(AVIBON,marque='AVIBON')
+ BALSOFUMINE<-fusion(BALSOFUMINE,marque='BALSOFUMINE')
+ BRONCHOKOD_RHINATHIOL_BRONCHOKOD<-fusion(BRONCHOKOD_RHINATHIOL_BRONCHOKOD,marque='BRONCHOKOD & RHINATHIOL / BRONCHOKOD')
+ BRONCHOKOD_RHINATHIOL_RHINATHIOL<-fusion(BRONCHOKOD_RHINATHIOL_RHINATHIOL,marque='BRONCHOKOD & RHINATHIOL / RHINATHIOL')
+ CODOLIPRANE_BU<-fusion(CODOLIPRANE_BU,marque='CODOLIPRANE_BU')
+ DECONTRACT<-fusion(DECONTRACT,marque='DECONTRACT')
+ DERMACHROM<-fusion(DERMACHROM,marque='DERMACHROM')
+ DIAMOX<-fusion(DIAMOX,marque='DIAMOX')
+ #DOLI_ETAT_GRIPPAL<-fusion(DOLI_ETAT_GRIPPAL,marque='DOLI_ETAT_GRIPPAL')
+ DOLI_MAUX_DE_GORGE<-fusion(DOLI_MAUX_DE_GORGE,marque='DOLI_MAUX_DE_GORGE')
+ DOLIALLERGIE<-fusion(DOLIALLERGIE,marque='DOLIALLERGIE')
+ DOLIPRANE_GENERALIST<-fusion(DOLIPRANE_GENERALIST,marque='DOLIPRANE GENERALIST')
+ DOLIRHUME<-fusion(DOLIRHUME,marque='DOLIRHUME')
+ ENDOTELON_BU<-fusion(ENDOTELON_BU,marque='ENDOTELON_BU')
+ ERCEFURYL<-fusion(ERCEFURYL,marque='ERCEFURYL')
+ ETIOVEN<-fusion(ETIOVEN,marque='ETIOVEN')
+ HEMOCLAR<-fusion(HEMOCLAR,marque='HEMOCLAR')
+ HEPTAMYL<-fusion(HEPTAMYL,marque='HEPTAMYL')
+ HEXOMEDINE_BU<-fusion(HEXOMEDINE_BU,marque='HEXOMEDINE_BU')
+ IPRAALOX<-fusion(IPRAALOX,marque='IPRAALOX')
+ MAALOX<-fusion(MAALOX,marque='MAALOX')
+ MAGNE_B6_MAGNE_VIE<-fusion(MAGNE_B6_MAGNE_VIE,marque='MAGNE B6 & MAGNE VIE')
+ MAXILASE_BU<-fusion(MAXILASE_BU,marque='MAXILASE_BU')
+ MITOCORTYL<-fusion(MITOCORTYL,marque='MITOCORTYL')
+ MITOSYL<-fusion(MITOSYL,marque='MITOSYL')
+ NAUTAMINE<-fusion(NAUTAMINE,marque='NAUTAMINE')
+ NOVA_HEALTH_DIVERS_NOVA_SANTE<-fusion(NOVA_HEALTH_DIVERS_NOVA_SANTE,marque='NOVA HEALTH / DIVERS NOVA SANTE')
+ NOVA_HEALTH_NOVABIOSTIM<-fusion(NOVA_HEALTH_NOVABIOSTIM,marque='NOVA HEALTH / NOVABIOSTIM')
+ NOVA_HEALTH_NOVALGIC<-fusion(NOVA_HEALTH_NOVALGIC,marque='NOVA HEALTH / NOVALGIC')
+ NOVA_HEALTH_NOVANIGHT<-fusion(NOVA_HEALTH_NOVANIGHT,marque='NOVA HEALTH / NOVANIGHT')
+ NOVA_HEALTH_NOVASTEROL<-fusion(NOVA_HEALTH_NOVASTEROL,marque='NOVA HEALTH / NOVASTEROL')
+ NOVA_HEALTH_NOVASTIM<-fusion(NOVA_HEALTH_NOVASTIM,marque='NOVA HEALTH / NOVASTIM')
+ NOVA_HEALTH_NOVAZEN<-fusion(NOVA_HEALTH_NOVAZEN,marque='NOVA HEALTH / NOVAZEN')
+
+ #NOVALAC_BU<-fusion(NOVALAC_BU,marque='NOVALAC_BU')
+ OENOBIOL_BU_ACTIV_OPC<-fusion(OENOBIOL_BU_ACTIV_OPC,marque='OENOBIOL_BU / ACTIV OPC')
+ OENOBIOL_BU_ANTI_AGE<-fusion(OENOBIOL_BU_ANTI_AGE,marque='OENOBIOL_BU / ANTI-AGE')
+ OENOBIOL_BU_ANTI_CHUTE<-fusion(OENOBIOL_BU_ANTI_CHUTE,marque='OENOBIOL_BU / ANTI-CHUTE')
+ OENOBIOL_BU_ANTI_RIDES<-fusion(OENOBIOL_BU_ANTI_RIDES,marque='OENOBIOL_BU / ANTI-RIDES')
+ OENOBIOL_BU_AQUADRAINANT<-fusion(OENOBIOL_BU_AQUADRAINANT,marque='OENOBIOL_BU / AQUADRAINANT')
+ # OENOBIOL_BU_AUTOBRONZANT<-fusion(OENOBIOL_BU_AUTOBRONZANT,marque='OENOBIOL_BU / AUTOBRONZANT')
+ OENOBIOL_BU_BEAUTE_DES_CHEVEUX<-fusion(OENOBIOL_BU_BEAUTE_DES_CHEVEUX,marque='OENOBIOL_BU / BEAUTE DES CHEVEUX')
+ OENOBIOL_BU_BEAUTIFIC_OEN_ENERGY<-fusion(OENOBIOL_BU_BEAUTIFIC_OEN_ENERGY,marque='OENOBIOL_BU / BEAUTIFIC OEN ENERGY')
+ #OENOBIOL_BU_BEAUTIFIC_OEN_HAIR_A<-fusion(OENOBIOL_BU_BEAUTIFIC_OEN_HAIR_A,marque='OENOBIOL_BU / BEAUTIFIC OEN HAIR A')
+ #OENOBIOL_BU_BEAUTIFIC_OENOBIOL_A<-fusion(OENOBIOL_BU_BEAUTIFIC_OENOBIOL_A,marque='OENOBIOL_BU / BEAUTIFIC OENOBIOL A')
+ #OENOBIOL_BU_BEAUTIFIC_OENOBIOL_S<-fusion(OENOBIOL_BU_BEAUTIFIC_OENOBIOL_S,marque='OENOBIOL_BU / BEAUTIFIC OENOBIOL S')
+ OENOBIOL_BU_BOUFFEES_DE_CHALEUR<-fusion(OENOBIOL_BU_BOUFFEES_DE_CHALEUR,marque='OENOBIOL_BU / BOUFFEES DE CHALEUR')
+ #OENOBIOL_BU_CAPTEUR<-fusion(OENOBIOL_BU_CAPTEUR,marque='OENOBIOL_BU / CAPTEUR')
+ OENOBIOL_BU_CELLULITE<-fusion(OENOBIOL_BU_CELLULITE,marque='OENOBIOL_BU / CELLULITE')
+ OENOBIOL_BU_CONFORT_DIGESTIF<-fusion(OENOBIOL_BU_CONFORT_DIGESTIF,marque='OENOBIOL_BU / CONFORT DIGESTIF')
+ OENOBIOL_BU_DESTRESSANT<-fusion(OENOBIOL_BU_DESTRESSANT,marque='OENOBIOL_BU / DESTRESSANT')
+ OENOBIOL_BU_DETOX<-fusion(OENOBIOL_BU_DETOX,marque='OENOBIOL_BU / DETOX')
+ OENOBIOL_BU_DIET_MINCEUR<-fusion(OENOBIOL_BU_DIET_MINCEUR,marque='OENOBIOL_BU / DIET MINCEUR')
+ OENOBIOL_BU_DIV_SANTE_BIEN_ETRE<-fusion(OENOBIOL_BU_DIV_SANTE_BIEN_ETRE,marque='OENOBIOL_BU / DIV. SANTE&BIEN ETRE')
+ #OENOBIOL_BU_DIVERS_CAPILLAIRE<-fusion(OENOBIOL_BU_DIVERS_CAPILLAIRE,marque='OENOBIOL_BU / DIVERS CAPILLAIRE')
+ #OENOBIOL_BU_DIVERS_FEMME_45<-fusion(OENOBIOL_BU_DIVERS_FEMME_45,marque='OENOBIOL_BU / DIVERS FEMME 45+')
+ OENOBIOL_BU_DIVERS_MINCEUR<-fusion(OENOBIOL_BU_DIVERS_MINCEUR,marque='OENOBIOL_BU / DIVERS MINCEUR')
+ OENOBIOL_BU_DIVERS_OENOBIOL<-fusion(OENOBIOL_BU_DIVERS_OENOBIOL,marque='OENOBIOL_BU / DIVERS OENOBIOL')
+ OENOBIOL_BU_DIVERS_PEAU<-fusion(OENOBIOL_BU_DIVERS_PEAU,marque='OENOBIOL_BU / DIVERS PEAU')
+ #OENOBIOL_BU_DIVERS_SOLAIRE<-fusion(OENOBIOL_BU_DIVERS_SOLAIRE,marque='OENOBIOL_BU / DIVERS SOLAIRE')
+ OENOBIOL_BU_ECLAT<-fusion(OENOBIOL_BU_ECLAT,marque='OENOBIOL_BU / ECLAT')
+ OENOBIOL_BU_FEMME45_ANTI_AGE<-fusion(OENOBIOL_BU_FEMME45_ANTI_AGE,marque='OENOBIOL_BU / FEMME45+ANTI AGE')
+ OENOBIOL_BU_FORTIFIANT<-fusion(OENOBIOL_BU_FORTIFIANT,marque='OENOBIOL_BU / FORTIFIANT')
+ OENOBIOL_BU_GLUCOMANANE<-fusion(OENOBIOL_BU_GLUCOMANANE,marque='OENOBIOL_BU / GLUCOMANANE')
+ #OENOBIOL_BU_PEAU_d_ORANGE<-fusion(OENOBIOL_BU_PEAU_d_ORANGE,marque="OENOBIOL_BU / PEAU d'ORANGE")
+ #OENOBIOL_BU_PERFORMANCE<-fusion(OENOBIOL_BU_PERFORMANCE,marque='OENOBIOL_BU_PERFORMANCE')
+ OENOBIOL_BU_PERTE_DE_POIDS<-fusion(OENOBIOL_BU_PERTE_DE_POIDS,marque='OENOBIOL_BU / PERTE DE POIDS')
+ OENOBIOL_BU_PURIFIANT<-fusion(OENOBIOL_BU_PURIFIANT,marque='OENOBIOL_BU / PURIFIANT')
+ OENOBIOL_BU_REGARD<-fusion(OENOBIOL_BU_REGARD,marque='OENOBIOL_BU / REGARD')
+ OENOBIOL_BU_REMODELANT<-fusion(OENOBIOL_BU_REMODELANT,marque='OENOBIOL_BU / REMODELANT')
+ OENOBIOL_BU_RETENTION_D_EAU<-fusion(OENOBIOL_BU_RETENTION_D_EAU,marque="OENOBIOL_BU / RETENTION D'EAU")
+ OENOBIOL_BU_SOL_INT_NUTRI_PROT<-fusion(OENOBIOL_BU_SOL_INT_NUTRI_PROT,marque='OENOBIOL_BU / SOL. INT. NUTRI PROT')
+ OENOBIOL_BU_SOL_INTENSIF_HYDRAT<-fusion(OENOBIOL_BU_SOL_INTENSIF_HYDRAT,marque='OENOBIOL_BU / SOL.INTENSIF HYDRAT.')
+ OENOBIOL_BU_SOL_INTENSIF_PROTEC<-fusion(OENOBIOL_BU_SOL_INTENSIF_PROTEC,marque='OENOBIOL_BU / SOL.INTENSIF PROTEC.')
+ OENOBIOL_BU_SOL_INTENSIF_TOLER<-fusion(OENOBIOL_BU_SOL_INTENSIF_TOLER,marque='OENOBIOL_BU / SOL.INTENSIF TOLER.')
+ OENOBIOL_BU_SOLAIRE_INT_ANTI_AGE<-fusion(OENOBIOL_BU_SOLAIRE_INT_ANTI_AGE,marque='OENOBIOL_BU / SOLAIRE INT.ANTI AGE')
+ OENOBIOL_BU_SOLAIRE_INTENSIF<-fusion(OENOBIOL_BU_SOLAIRE_INTENSIF,marque='OENOBIOL_BU / SOLAIRE INTENSIF')
+ OENOBIOL_BU_TOP_SLIM<-fusion(OENOBIOL_BU_TOP_SLIM,marque='OENOBIOL_BU / TOP SLIM')
+ #OENOBIOL_BU_TOP_SLIM_LIPOREDUCTE<-fusion(OENOBIOL_BU_TOP_SLIM_LIPOREDUCTE,marque='OENOBIOL_BU / TOP SLIM LIPOREDUCTE')
+ OENOBIOL_BU_ULTRA_HYDRATANT<-fusion(OENOBIOL_BU_ULTRA_HYDRATANT,marque='OENOBIOL_BU / ULTRA HYDRATANT')
+ OENOBIOL_BU_VENTRE_PLAT<-fusion(OENOBIOL_BU_VENTRE_PLAT,marque='OENOBIOL_BU / VENTRE PLAT')
+ OENOBIOL_BU_VOLUMATEUR<-fusion(OENOBIOL_BU_VOLUMATEUR,marque='OENOBIOL_BU / VOLUMATEUR')
+ OTCDIV<-fusion(OTCDIV,marque='OTCDIV')
+ PHYSIOMER<-fusion(PHYSIOMER,marque='PHYSIOMER')
+ POLYKARAYA<-fusion(POLYKARAYA,marque='POLYKARAYA')
+ POLYSILANE<-fusion(POLYSILANE,marque='POLYSILANE')
+ RESPILENE_BU<-fusion(RESPILENE_BU,marque='RESPILENE_BU')
+ SOLUTRICINE<-fusion(SOLUTRICINE,marque='SOLUTRICINE')
+ SORBITOL<-fusion(SORBITOL,marque='SORBITOL')
+ SPECIAFOLDINE<-fusion(SPECIAFOLDINE,marque='SPECIAFOLDINE')
+ TOPLEXIL_BU<-fusion(TOPLEXIL_BU,marque='TOPLEXIL_BU')
+ TROPHIRES<-fusion(TROPHIRES,marque='TROPHIRES')
+ VADILEX<-fusion(VADILEX,marque='VADILEX')
+ VITB12<-fusion(VITB12,marque='VITB12')
+ #YOHIMBINE<-fusion(YOHIMBINE,marque='YOHIMBINE')
+ 
+
+
+ l<-list(aspegique,ATURGYL,AVIBON,BALSOFUMINE,BRONCHOKOD_RHINATHIOL_BRONCHOKOD,BRONCHOKOD_RHINATHIOL_RHINATHIOL,
+         CODOLIPRANE_BU,DECONTRACT,DERMACHROM,DIAMOX,DOLI_MAUX_DE_GORGE,DOLIALLERGIE,DOLIPRANE_GENERALIST,
+         DOLIRHUME,ENDOTELON_BU,ERCEFURYL,ETIOVEN,HEMOCLAR,HEPTAMYL,HEXOMEDINE_BU,IPRAALOX,MAALOX,MAGNE_B6_MAGNE_VIE,
+         MAXILASE_BU,MITOCORTYL,MITOSYL,NAUTAMINE,NOVA_HEALTH_DIVERS_NOVA_SANTE,NOVA_HEALTH_NOVABIOSTIM,
+         NOVA_HEALTH_NOVALGIC,NOVA_HEALTH_NOVANIGHT,NOVA_HEALTH_NOVASTEROL,NOVA_HEALTH_NOVASTIM,NOVA_HEALTH_NOVAZEN,
+         OENOBIOL_BU_ACTIV_OPC,OENOBIOL_BU_ANTI_AGE,OENOBIOL_BU_ANTI_CHUTE,OENOBIOL_BU_ANTI_RIDES,OENOBIOL_BU_AQUADRAINANT,
+         OENOBIOL_BU_BEAUTE_DES_CHEVEUX,OENOBIOL_BU_BEAUTIFIC_OEN_ENERGY,OENOBIOL_BU_BOUFFEES_DE_CHALEUR,OENOBIOL_BU_CELLULITE,
+         OENOBIOL_BU_CONFORT_DIGESTIF,OENOBIOL_BU_DESTRESSANT,OENOBIOL_BU_DETOX,OENOBIOL_BU_DIET_MINCEUR,OENOBIOL_BU_DIV_SANTE_BIEN_ETRE,
+         OENOBIOL_BU_DIVERS_MINCEUR,OENOBIOL_BU_DIVERS_OENOBIOL,OENOBIOL_BU_DIVERS_PEAU,OENOBIOL_BU_ECLAT,OENOBIOL_BU_FEMME45_ANTI_AGE,
+         OENOBIOL_BU_FORTIFIANT,OENOBIOL_BU_GLUCOMANANE,OENOBIOL_BU_PERTE_DE_POIDS,OENOBIOL_BU_PURIFIANT,OENOBIOL_BU_REGARD,
+         OENOBIOL_BU_REMODELANT,OENOBIOL_BU_RETENTION_D_EAU,OENOBIOL_BU_SOL_INT_NUTRI_PROT,OENOBIOL_BU_SOL_INTENSIF_HYDRAT,
+         OENOBIOL_BU_SOL_INTENSIF_PROTEC,OENOBIOL_BU_SOL_INTENSIF_TOLER,OENOBIOL_BU_SOLAIRE_INT_ANTI_AGE,OENOBIOL_BU_SOLAIRE_INTENSIF,
+         OENOBIOL_BU_TOP_SLIM,OENOBIOL_BU_ULTRA_HYDRATANT,OENOBIOL_BU_VENTRE_PLAT,OENOBIOL_BU_VOLUMATEUR,OTCDIV,PHYSIOMER,POLYKARAYA,
+         POLYSILANE,RESPILENE_BU,SOLUTRICINE,SORBITOL,SPECIAFOLDINE,TOPLEXIL_BU,TROPHIRES,VADILEX,VITB12
+ )
+ 
+ season<-rbindlist(l, fill=FALSE, idcol=NULL)
+ 
+ write.csv(season,"season.csv")
+ 
+```
+
+## visualisons les series
+
+
+
+
+```{r, message= F, warning= F}
+visualise <- function(season,marque='ASPEGIC/MIGPRIV'){
+
+  p <- subplot(
+    plot_ly(season[season$segment_produit==marque,], y = observed),
+    plot_ly(season[season$segment_produit==marque,], y = trend),
+    plot_ly(season[season$segment_produit==marque,], y = seasonal),
+    plot_ly(season[season$segment_produit==marque,], y = random),
+    margin = 0.05,
+    nrows=4
+  ) %>% layout(showlegend = FALSE)
+  #p
+return(p)
+}
+
+
+
+```
+
+### Fonction permettant de désaisonnaliser et de detrender chaquee série
+ASPEGIC
+
+```{r, message= F, warning= F}
+visualise(season,marque='ASPEGIC/MIGPRIV')
+
+```
+
+ATURGYL
+```{r, message= F, warning= F}
+visualise(season,marque='ATURGYL')
+
+```
+
+AVIBON
+```{r, message= F, warning= F}
+visualise(season,marque='AVIBON')
+
+```
+
+BALSOFUMINE
+
+```{r, message= F, warning= F}
+visualise(season,marque='BALSOFUMINE')
+
+```
+
+BRONCHOKOD-RHINATHIOL-BRONCHOKOD
+
+```{r, message= F, warning= F}
+visualise(season,marque='BRONCHOKOD & RHINATHIOL / BRONCHOKOD')
+
+```
+
+
+BRONCHOKOD-RHINATHIOL-RHINATHIOL
+
+```{r, message= F, warning= F}
+visualise(season,marque='BRONCHOKOD & RHINATHIOL / RHINATHIOL')
+
+```
+
+CODOLIPRANE
+```{r, message= F, warning= F}
+visualise(season,marque='CODOLIPRANE_BU')
+
+```
+
+DECONTRACTYL
+```{r, message= F, warning= F}
+visualise(season,marque='DECONTRACT')
+
+```
+
+DERMACHROM
+```{r, message= F, warning= F}
+visualise(season,marque='DERMACHROM')
+
+```
+
+DIAMOX
+```{r, message= F, warning= F}
+visualise(season,marque='DIAMOX')
+
+```
+
+DOLI-ETAT-GRIPPAL
+```{r, message= F, warning= F}
+#DOLI_ETAT_GRIPPAL<-visualise(season,marque='DOLI_ETAT_GRIPPAL')
+
+```
+
+DOLI-MAUX-DE-GORGE
+```{r, message= F, warning= F}
+visualise(season,marque='DOLI_MAUX_DE_GORGE')
+
+```
+
+DOLIALLERGIE
+```{r, message= F, warning= F}
+visualise(season,marque='DOLIALLERGIE')
+
+```
+
+DOLIPRANE_GENERALIST
+```{r, message= F, warning= F}
+visualise(season,marque='DOLIPRANE GENERALIST')
+
+```
+
+DOLIRHUME
+```{r, message= F, warning= F}
+visualise(season,marque='DOLIRHUME')
+
+```
+
+ENDOTELON_BU
+
+```{r, message= F, warning= F}
+visualise(season,marque='ENDOTELON_BU')
+
+```
+
+ERCEFURYL
+```{r, message= F, warning= F}
+visualise(season,marque='ERCEFURYL')
+
+```
+
+ETIOVEN
+```{r, message= F, warning= F}
+visualise(season,marque='ETIOVEN')
+
+```
+
+HEMOCLAR
+```{r, message= F, warning= F}
+visualise(season,marque='HEMOCLAR')
+
+```
+
+HEPTAMYL
+```{r, message= F, warning= F}
+visualise(season,marque='HEPTAMYL')
+
+```
+
+HEXOMEDINE-BU
+```{r, message= F, warning= F}
+visualise(season,marque='HEXOMEDINE_BU')
+
+```
+
+
+IPRAALOX
+```{r, message= F, warning= F}
+visualise(season,marque='IPRAALOX')
+
+```
+
+
+MAALOX
+```{r, message= F, warning= F}
+visualise(season,marque='MAALOX')
+
+```
+
+MAGNE-B6-MAGNE_VIE
+```{r, message= F, warning= F}
+visualise(season,marque='MAGNE B6 & MAGNE VIE')
+
+```
+
+MAXILASE_BU
+
+```{r, message= F, warning= F}
+visualise(season,marque='MAXILASE_BU')
+
+```
+
+MITOCORTYL
+```{r, message= F, warning= F}
+visualise(season,marque='MITOCORTYL')
+
+```
+
+MITOSYL
+```{r, message= F, warning= F}
+visualise(season,marque='MITOSYL')
+
+```
+
+NAUTAMINE
+```{r, message= F, warning= F}
+visualise(season,marque='NAUTAMINE')
+
+```
+
+NOVA-HEALTH-DIVERS-NOVA_SANTE
+
+```{r, message= F, warning= F}
+visualise(season,marque='NOVA HEALTH / DIVERS NOVA SANTE')
+
+```
+
+NOVA-HEALTH-NOVABIOSTIM
+```{r, message= F, warning= F}
+visualise(season,marque='NOVA HEALTH / NOVABIOSTIM')
+
+```
+
+NOVA_HEALTH_NOVALGIC
+
+```{r, message= F, warning= F}
+visualise(season,marque='NOVA HEALTH / NOVALGIC')
+```
+
+NOVA_HEALTH_NOVANIGHT
+
+```{r, message= F, warning= F}
+visualise(season,marque='NOVA HEALTH / NOVANIGHT')
+```
+
+NOVA_HEALTH_NOVASTEROL
+
+```{r, message= F, warning= F}
+visualise(season,marque='NOVA HEALTH / NOVASTEROL')
+```
+
+NOVA_HEALTH_NOVASTIM
+
+```{r, message= F, warning= F}
+visualise(season,marque='NOVA HEALTH / NOVASTIM')
+```
+
+NOVA_HEALTH_NOVAZEN
+
+```{r, message= F, warning= F}
+visualise(season,marque='NOVA HEALTH / NOVAZEN')
+```
+
+NOVALAC_BU
+```{r, message= F, warning= F}
+#NOVALAC_BU<-visualise(season,marque='NOVALAC_BU')
+```
+OENOBIOL_BU_ACTIV_OPC
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / ACTIV OPC')
+```
+OENOBIOL_BU_ANTI_AGE
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / ANTI-AGE')
+```
+
+OENOBIOL_BU_ANTI_CHUTE
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / ANTI-CHUTE')
+```
+
+OENOBIOL_BU_ANTI_RIDES
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / ANTI-RIDES')
+```
+OENOBIOL_BU_AQUADRAINANT
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / AQUADRAINANT')
+```
+OENOBIOL_BU_AUTOBRONZANT
+```{r, message= F, warning= F}
+#OENOBIOL_BU_AUTOBRONZANT<-visualise(season,marque='OENOBIOL_BU / AUTOBRONZANT')
+```
+
+OENOBIOL_BU_BEAUTE_DES_CHEVEUX
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / BEAUTE DES CHEVEUX')
+```
+
+OENOBIOL_BU_BEAUTIFIC_OEN_ENERGY
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / BEAUTIFIC OEN ENERGY')
+```
+OENOBIOL_BU_BEAUTIFIC_OEN_HAIR_A
+```{r, message= F, warning= F}
+#OENOBIOL_BU_BEAUTIFIC_OEN_HAIR_A<-visualise(season,marque='OENOBIOL_BU / BEAUTIFIC OEN HAIR A')
+```
+
+OENOBIOL_BU_BEAUTIFIC_OENOBIOL_A
+```{r, message= F, warning= F}
+#OENOBIOL_BU_BEAUTIFIC_OENOBIOL_A<-visualise(season,marque='OENOBIOL_BU / BEAUTIFIC OENOBIOL A')
+```
+
+
+OENOBIOL_BU_BEAUTIFIC_OENOBIOL_S
+```{r, message= F, warning= F}
+#OENOBIOL_BU_BEAUTIFIC_OENOBIOL_S<-visualise(season,marque='OENOBIOL_BU / BEAUTIFIC OENOBIOL S')
+```
+OENOBIOL_BU_BOUFFEES_DE_CHALEUR
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / BOUFFEES DE CHALEUR')
+```
+
+OENOBIOL_BU_CAPTEUR
+```{r, message= F, warning= F}
+#OENOBIOL_BU_CAPTEUR<-visualise(season,marque='OENOBIOL_BU / CAPTEUR')
+```
+
+OENOBIOL_BU_CELLULITE
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / CELLULITE')
+```
+
+OENOBIOL_BU_CONFORT_DIGESTIF
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / CONFORT DIGESTIF')
+```
+
+OENOBIOL_BU_DESTRESSANT
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / DESTRESSANT')
+```
+
+OENOBIOL_BU_DETOX
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / DETOX')
+```
+
+OENOBIOL_BU_DIET_MINCEUR
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / DIET MINCEUR')
+```
+
+OENOBIOL_BU_DIV_SANTE_BIEN_ETRE
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / DIV. SANTE&BIEN ETRE')
+```
+
+OENOBIOL_BU_DIVERS_CAPILLAIRE
+```{r, message= F, warning= F}
+#OENOBIOL_BU_DIVERS_CAPILLAIRE<-visualise(season,marque='OENOBIOL_BU / DIVERS CAPILLAIRE')
+```
+
+```{r, message= F, warning= F}
+#OENOBIOL_BU_DIVERS_FEMME_45<-visualise(season,marque='OENOBIOL_BU / DIVERS FEMME 45+')
+```
+
+OENOBIOL_BU_DIVERS_MINCEUR
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / DIVERS MINCEUR')
+```
+
+
+OENOBIOL_BU_DIVERS_OENOBIOL
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / DIVERS OENOBIOL')
+```
+
+OENOBIOL_BU_DIVERS_PEAU
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / DIVERS PEAU')
+```
+
+OENOBIOL_BU_DIVERS_SOLAIRE
+```{r, message= F, warning= F}
+#OENOBIOL_BU_DIVERS_SOLAIRE<-visualise(season,marque='OENOBIOL_BU / DIVERS SOLAIRE')
+```
+
+OENOBIOL_BU_ECLAT
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / ECLAT')
+```
+OENOBIOL_BU_FEMME45_ANTI_AGE
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / FEMME45+ANTI AGE')
+```
+
+OENOBIOL_BU_FORTIFIANT
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / FORTIFIANT')
+```
+OENOBIOL_BU_GLUCOMANANE
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / GLUCOMANANE')
+```
+OENOBIOL_BU_PEAU_d_ORANGE
+```{r, message= F, warning= F}
+#OENOBIOL_BU_PEAU_d_ORANGE<-visualise(season,marque="OENOBIOL_BU / PEAU d'ORANGE")
+```
+
+OENOBIOL_BU_PERFORMANCE
+```{r, message= F, warning= F}
+#OENOBIOL_BU_PERFORMANCE<-visualise(season,marque='OENOBIOL_BU_PERFORMANCE')
+```
+
+OENOBIOL_BU_PERTE_DE_POIDS
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / PERTE DE POIDS')
+```
+OENOBIOL_BU_PURIFIANT
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / PURIFIANT')
+```
+OENOBIOL_BU_REGARD
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / REGARD')
+```
+
+OENOBIOL_BU_REMODELANT
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / REMODELANT')
+```
+
+OENOBIOL_BU_RETENTION_D_EAU
+```{r, message= F, warning= F}
+visualise(season,marque="OENOBIOL_BU / RETENTION D'EAU")
+```
+OENOBIOL_BU_SOL_INT_NUTRI_PROT
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / SOL. INT. NUTRI PROT')
+```
+OENOBIOL_BU_SOL_INTENSIF_HYDRAT
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / SOL.INTENSIF HYDRAT.')
+```
+
+OENOBIOL_BU_SOL_INTENSIF_PROTEC
+
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / SOL.INTENSIF PROTEC.')
+```
+OENOBIOL_BU_SOL_INTENSIF_TOLER
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / SOL.INTENSIF TOLER.')
+```
+
+OENOBIOL_BU_SOLAIRE_INT_ANTI_AGE
+
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / SOLAIRE INT.ANTI AGE')
+```
+OENOBIOL_BU_SOLAIRE_INTENSIF
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / SOLAIRE INTENSIF')
+```
+OENOBIOL_BU_TOP_SLIM
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / TOP SLIM')
+```
+OENOBIOL_BU_TOP_SLIM_LIPOREDUCTE
+```{r, message= F, warning= F}
+#OENOBIOL_BU_TOP_SLIM_LIPOREDUCTE<-visualise(season,marque='OENOBIOL_BU / TOP SLIM LIPOREDUCTE')
+```
+OENOBIOL_BU_ULTRA_HYDRATANT
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / ULTRA HYDRATANT')
+```
+OENOBIOL_BU_VENTRE_PLAT
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / VENTRE PLAT')
+```
+OENOBIOL_BU_VOLUMATEUR
+```{r, message= F, warning= F}
+visualise(season,marque='OENOBIOL_BU / VOLUMATEUR')
+```
+
+OTCDIV
+```{r, message= F, warning= F}
+visualise(season,marque='OTCDIV')
+```
+PHYSIOMER
+```{r, message= F, warning= F}
+visualise(season,marque='PHYSIOMER')
+```
+POLYKARAYA
+```{r, message= F, warning= F}
+visualise(season,marque='POLYKARAYA')
+```
+POLYSILANE
+```{r, message= F, warning= F}
+visualise(season,marque='POLYSILANE')
+```
+
+```{r, message= F, warning= F}
+visualise(season,marque='RESPILENE_BU')
+```
+SOLUTRICINE
+```{r, message= F, warning= F}
+visualise(season,marque='SOLUTRICINE')
+```
+
+SORBITOL
+```{r, message= F, warning= F}
+visualise(season,marque='SORBITOL')
+```
+SPECIAFOLDINE
+```{r, message= F, warning= F}
+visualise(season,marque='SPECIAFOLDINE')
+```
+
+```{r, message= F, warning= F}
+visualise(season,marque='TOPLEXIL_BU')
+```
+
+TROPHIRES
+```{r, message= F, warning= F}
+visualise(season,marque='TROPHIRES')
+```
+VADILEX
+```{r, message= F, warning= F}
+visualise(season,marque='VADILEX')
+```
+
+VITB12
+```{r, message= F, warning= F}
+visualise(season,marque='VITB12')
+```
+
+YOHIMBINE
+```{r, message= F, warning= F}
+#YOHIMBINE<-visualise(season,marque='YOHIMBINE')
+```
+
+
+```{r, message= F, warning= F}
+
+ p <- subplot(
+  plot_ly(season[season$segment_produit=='ASPEGIC/MIGPRIV',], y = observed),
+  plot_ly(season[season$segment_produit=='ASPEGIC/MIGPRIV',], y = trend),
+  plot_ly(season[season$segment_produit=='ASPEGIC/MIGPRIV',], y = seasonal),
+  plot_ly(season[season$segment_produit=='ASPEGIC/MIGPRIV',], y = random),
+  margin = 0.05,
+  nrows=4
+) %>% layout(showlegend = FALSE)
+p
+
+#a<-plot_ly(season[season$segment_produit=='ASPEGIC/MIGPRIV',], y = observed)
+#b<-plot_ly(season[season$segment_produit=='ASPEGIC/MIGPRIV',], y = random)
+#data=list(a,b)
+#plot(data)
+ 
+# plot_ly( y =y)
+ 
+ #plot_ly(x = season[season$segment_produit=='ASPEGIC/MIGPRIV',]$anneemois, y = season[season$segment_produit=='ASPEGIC/MIGPRIV',]$observed)
+```
+
+```{r, message= F, warning= F}
+# Influence sur le prix de la feature tx rembour
+
+```
+
+```{r, message= F, warning= F}
+# Influence sur le prix de la feature statut 
+
+```
+
+## Preparation des donnees
+
+Pour faciliter la preparation de donnees, il est conseille de concatener les datasets `train` et `test` pour n'avoir a modifier qu'un dataset, quitte a les separer de nouveau par la suite.
+
+```{r, message= F, warning= F}
+# Cree une variable categorie pour pouvoir separer les datasets apres la preparation des donnees
+
+```
+
+Certaines variables categorielles se sont transformees en texte lors de concatenation des deux data sets car certaines modalites etaient presentes dans un dataset mais inconnu dans l'autre. Corrigons cela:
+
+```{r}
+
+```
+
+
+### Regroupement de modalites rares
+
+Certaines variables categorielles presentent beaucoup de modalites ce qui peut poser des problemes lors de l'utilisation de certains algorithmes de machine learning.
+Un moyen de regler ce probleme est de combiner les occurrences rares dans un meme groupe appelle "OTHERS".
+
+Pour ce faire nous utilisons la fonction ```combine.levels()``` pour creer cinq nouvelles variables qui sont des versions combinees des variables ```libelle```, ```titulaires```, ```substances```, ```forme.pharma``` et ```voies.admin```
+
+Le niveau de regroupement choisit dans cette exemple est 0.01, ce qui signifie que toutes les modalites avec une frequence inferieur a 1% seront regroupes dans "OTHERS"
+```{r, message= F, warning= F}
+
+```
+
+### Split train / test
+
+Nous avons plus haut fusionne `train` et `test` dans `full` pour gagner du temps lors de la creation de variables (un seul data set a modifier).
+
+On peut maintenant les separer de nouveau en utilisant la variable `categorie`.
+```{r, message= F, warning= F}
+
+```
+
+## Creation d'un modele en cross validation
+
+Il est maintenant temps de creer un modele. Dans ce tutoriel nous allons construire une [Foret Aleatoire](https://fr.wikipedia.org/wiki/For%C3%AAt_d'arbres_d%C3%A9cisionnels).
+
+Pour ce faire nous utilisons toutes les variables dont nous disposons a l'exception des variables categorielles avec beaucoup de modalites que l'on a remplace plus haut par des versions combinees.
+
+Pour eviter le [surapprentissage](https://fr.wikipedia.org/wiki/Surapprentissage) et estimer les vraies performances de notre modele nous allons utiliser le critere de [validation croisee](https://fr.wikipedia.org/wiki/Validation_crois%C3%A9e), methode k-fold.
+
+
+```{r, message= F, warning= F}
+
+
+```
+
+
+Cela veut dire que notre modele predit les prix des medicaments avec 60% d'erreur en moyenne.
+Par exemple, si un medicament coute reellement 10 euros, notre prediction sera de 16 euros (ou 4 euros).
+
+#### Importance des variables 
+```{r, message= F, warning= F}
+
+```
+
+Les trois variables qui sont le plus importantes dans le modele sont :
+
+* la voie d'administration du comprime
+* le nombre de comprime 
+* le taux de remboursement associe au medicament 
+
+
+## Calcul des predictions et soumission
+
+Maintenant que nous avons cree un modele predictif, il est temps de predire les prix des boites de medicaments de l'echantillon test :
+
+```{r, message= F, warning= F}
+
+```
+
+Vous etes maintenant pret a faire votre premiere soumission en uplodant le fichier `soumission.csv` sur [Datascience.net](www.datascience.net)
