@@ -1,0 +1,493 @@
+
+
+	   /*********************************************/
+	  /*This macro allows to compute a             */
+	 /*value base segmentation based on           */
+	/*AMEA definition rates    the thresholds    */
+   /*her are different your value segments      */
+  /*********************************************/
+
+%macro segval(base_cbm);
+data &base_cbm;
+   set &base_cbm;
+   array change _numeric_;
+        do over change;
+            if change=. then change=0;
+        end;
+ run ;
+
+DATA &base_cbm;
+SET &base_cbm;
+CONSO_3m=(arpu_m1+arpu_m2+arpu_m3)/3;
+run;
+
+DATA &base_cbm;
+SET &base_cbm(where=(CONSO_3m>=0));
+RUN;
+
+
+proc freq data=&base_cbm noprint;
+table conso_3m / out=aa;
+run;
+
+PROC SORT DATA=aa;
+by conso_3m;
+run;
+data a;
+     set aa;
+     cumpct+percent;
+   run;
+
+Data a;
+set a;
+SEG_VAL="            ";
+IF cumpct<=57 THEN SEG_VAL="LV";
+	ELSE IF cumpct<=87 THEN SEG_VAL="MV";
+		ELSE IF cumpct<=97 THEN SEG_VAL="HV";
+			ELSE IF cumpct>97 THEN SEG_VAL="SHV";
+				ELSE IF CONSO_3M=0 THEN SEG_VAL="ZEROS";
+run;
+
+
+
+proc summary data=a(where=(seg_val="LV")) nway;
+            var conso_3m ;
+		    output out=seuil max=conso_3m;run;
+
+DATA _null_;
+SET seuil ;
+call symput('seuil_LV', conso_3m);
+RUN;
+
+
+proc summary data=a(where=(seg_val="MV")) nway;
+            var conso_3m ;
+		    output out=seuil max=conso_3m;run;
+
+DATA _null_;
+SET seuil ;
+call symput('seuil_MV', conso_3m);
+RUN;
+
+proc summary data=a(where=(seg_val="HV")) nway;
+            var conso_3m ;
+		    output out=seuil max=conso_3m;run;
+
+DATA _null_;
+SET seuil ;
+call symput('seuil_HV', conso_3m);
+RUN;
+
+
+Data &base_cbm;
+set &base_cbm(where=(CONSO_3M>=0));
+SEG_VAL="            ";
+IF CONSO_3M=0 THEN SEG_VAL="ZEROS";
+	ELSE IF CONSO_3M<=&seuil_LV THEN SEG_VAL="LV";
+		ELSE IF CONSO_3M<=&seuil_MV THEN SEG_VAL="MV";
+			ELSE IF CONSO_3M<=&seuil_HV THEN SEG_VAL="HV";
+				ELSE IF CONSO_3M>&seuil_LV THEN SEG_VAL="SHV";
+run;
+
+
+
+proc univariate data=&base_cbm(where=(seg_val^="ZEROS" and seg_val^="SHV")) noprint;
+var CONSO_3M;
+output out=temp Q1=First_Qtl MEDIAN=Second_Qtl Q3=Third_Qtl;
+run;
+data _null_;
+set temp;
+call symput('Q1', First_Qtl);
+call symput('Q2', Second_Qtl);
+call symput('Q3', Third_Qtl);
+run;
+
+Data &base_cbm;
+set &base_cbm(where=(CONSO_3M>=0));
+IF seg_val^="ZEROS" and seg_val^="SHV" then do;
+  IF CONSO_3M<=&Q1 THEN seg_val="Q1";
+     ELSE IF  CONSO_3M<=&Q2 THEN seg_val="Q2";
+       ELSE IF  CONSO_3M<=&Q3 THEN seg_val="Q3";
+	   	 ELSE IF  CONSO_3M>&Q3 THEN seg_val="Q4";
+END;
+
+run;
+
+
+
+
+TITLE "Segments Distribution";
+
+proc freq data=&base_cbm;
+table seg_val;
+RUN;
+
+PROC MEANS DATA=&base_cbm noprint;
+class seg_val;
+VAR conso_3m;
+OUTPUT OUT=seuil max=thresholds;
+run;
+
+TITLE "Segments thresholds The first row is the max of the whole base";
+PROC PRINT DATA=seuil(keep=seg_val thresholds);
+run;
+
+proc datasets lib=temp;
+    delete a aa seuil temp;
+quit;
+%mend segval;
+
+
+	   /***************************************************/
+	  /*This macro allows to identify and remove outliers*/
+	 /*an outlier is a customer having aberrant revenues*/
+	/***************************************************/
+
+
+%macro outliers(input=, var= , output=);
+
+/* Calculate the quartiles and inter-quartile range using proc univariate */
+proc univariate data=&Input noprint;
+var &Var;
+output out=temp QRANGE=IQR Q1=First_Qtl Q3=Third_Qtl;
+run;
+
+/* Extract the upper and lower limits into macro variables */
+data _null_;
+set temp;
+call symput('QR', IQR);
+call symput('Q1', First_Qtl);
+call symput('Q3', Third_Qtl);
+run;
+
+%let ULimit=%sysevalf(&Q3 + 1.5 * &QR);
+%let LLimit=%sysevalf(&Q1 - 1.5 * &QR);
+
+/* Final dataset excluding outliers*/
+data &output;
+set &input;
+%put See the lower and upper limit of acceptable range below: ;
+%put Lower limit = &LLimit;
+%put Upper limit = &ULimit;
+if &Var <= &ULimit;
+run;
+%mend ;
+
+
+	   /*****************************************************************/
+	  /*This macro allows to sample the representative UCG             */
+     /* The sampling is based on strata of value segmentation         */
+    /* computed using the macro segval the segment different         */
+   /*from Zeros and SHV are split into 4 parts based on quartiles   */
+  /*  The first argument is your all cbm base, the 2nd argument is */
+ /*                         your UCG size                         */
+/*****************************************************************/
+
+%macro GTU(base_cbm,base_gtu,taille);
+PROC SQL;
+CREATE TABLE base_hors_gtu AS
+	SELECT DISTINCT a.* FROM &base_cbm a WHERE a.subs_id NOT IN(SELECT distinct b.subs_id FROM &base_gtu b)
+;
+QUIT;
+
+
+DATA cbm_quant;
+SET base_hors_gtu(where=(seg_val^="ZEROS" and seg_val^="SHV"));
+run;
+
+DATA cbm_SHV;
+set base_hors_gtu(where=(seg_val="SHV" ));
+run;
+%outliers(input=cbm_SHV, var=conso_3m, output=cbm_SHV);
+
+DATA cbm_zeros;
+set base_hors_gtu(where=(seg_val="ZEROS" ));
+run;
+
+DATA base_hors_gtu;
+SET cbm_zeros cbm_quant cbm_SHV;
+run;
+
+/* Saving the number of observation in each strata*/
+data _null_;
+if 0 then set cbm_shv nobs=nobs;
+call symputx("n_shv",nobs);
+stop;
+run;
+%put &n_shv;
+
+data _null_;
+if 0 then set cbm_zeros nobs=nobs;
+call symputx("n_zeros",nobs);
+stop;
+run;
+
+data _null_;
+if 0 then set cbm_quant nobs=nobs;
+call symputx("n_quant",nobs);
+stop;
+run;
+
+data _null_;
+if 0 then set Base_hors_gtu nobs=nobs;
+call symputx("n_glob",nobs);
+stop;
+run;
+
+
+proc summary data=cbm_shv nway;
+            var conso_3m ;
+		    output out=moy_cbm_shv mean=conso_3m;run;
+
+proc summary data=cbm_shv nway;
+            var conso_3m ;
+		    output out=sd_cbm_shv std=conso_3m;run;
+DATA _null_;
+SET moy_cbm_shv ;
+call symput('ARPU_CBM_SHV', conso_3m);
+RUN;
+
+DATA _null_;
+SET sd_cbm_shv ;
+call symput('sd_CBM_SHV', conso_3m);
+RUN;
+%let ECART_SHV=2.00;
+%let ECART_TYPE_SHV=7.00;
+
+
+   %do %until(%eval(&ECART_SHV<0.001) AND %eval(&ECART_TYPE_SHV<0.05));
+    PROC  SURVEYSELECT data = cbm_shv noprint method = srs 
+    n = %sysfunc(round(%sysevalf(&taille*&n_shv/&n_glob))) out = GTU_SHV;
+    run; 
+            proc summary data=GTU_SHV nway;
+            var conso_3m ;
+		    output out=moy_gtu mean=conso_3m;
+
+            proc summary data=GTU_SHV nway;
+            var conso_3m ;
+		    output out=sd_gtu std=conso_3m;
+
+			DATA _null_;
+			SET moy_gtu;
+			call symput('ARPU_GTU', conso_3m);
+			RUN;
+
+		    DATA _null_;
+			SET sd_gtu;
+			call symput('sd_GTU', conso_3m);
+			RUN;
+			%let ECART_shv=%sysfunc(abs(%sysevalf((&ARPU_GTU-&ARPU_CBM_SHV)/&ARPU_CBM_SHV)));
+			%let ECART_TYPE_SHV=%sysfunc(abs(%sysevalf((&sd_GTU-&sd_CBM_SHV)/&sd_CBM_SHV)));
+	%end;
+	RUN;
+
+ PROC  SURVEYSELECT data = cbm_zeros noprint method = srs 
+    n = %sysfunc(round(%sysevalf(&taille*&n_zeros/&n_glob))) out = GTU_ZEROS;
+    run;
+
+
+proc rank data=Cbm_quant groups=3 out=quant(keep=subs_id conso_3m quartile);
+  var conso_3m;
+  ranks  quartile;
+run;
+
+proc sort data=Cbm_quant;
+by subs_id;
+run;
+
+proc sort data=quant;
+by subs_id;
+run;
+
+ data Cbm_quart(drop=quartile);
+ merge Cbm_quant quant;
+ by subs_id;
+
+
+ IF quartile=0 then seg_val="Q1 ";
+ELSE IF quartile=1 then seg_val="Q2";
+ELSE IF quartile=2 then seg_val="Q3";
+/*ELSE IF quartile=3 then seg_val="Q4";*/
+/*ELSE IF quartile=4 then seg_val="Q5";*/
+/*ELSE IF quartile=5 then seg_val="Q6";*/
+/*ELSE IF quartile=6 then seg_val="Q7";*/
+/*ELSE IF quartile=7 then seg_val="Q8";*/
+/*ELSE IF quartile=8 then seg_val="Q9";*/
+/*/*ELSE IF quartile=9 then seg_val="Q10";*/*/
+ run;
+
+proc summary data=cbm_quart nway;
+            var conso_3m ;
+		    output out=moy_cbm_quart mean=conso_3m;run;
+
+proc summary data=cbm_quart nway;
+            var conso_3m ;
+		    output out=sd_cbm_quart std=conso_3m;run;
+DATA _null_;
+SET moy_cbm_quart ;
+call symput('ARPU_cbm_quart', conso_3m);
+RUN;
+
+DATA _null_;
+SET sd_cbm_quart ;
+call symput('sd_cbm_quart', conso_3m);
+RUN;
+%let ECART_quart=2.00;
+%let ECART_TYPE_quart=7.00;
+
+proc sort data=Cbm_quart;
+by seg_val;
+run;
+
+ %do %until(%eval(&ECART_quart<0.001) AND %eval(&ECART_TYPE_quart<0.05));
+proc surveyselect data =Cbm_quart out = GTU_quart noprint method = srs n = %sysfunc(round(%sysevalf(&taille*&n_quant/(3*&n_glob))));
+strata seg_val;
+run;
+
+DATA GTU_quart;
+retain subs_id conso_3m seg_val;
+SET GTU_quart(keep=subs_id arpu_m1 arpu_m2 arpu_m3 conso_3m seg_val);
+run;
+
+ proc summary data=GTU_quart nway;
+            var conso_3m ;
+		    output out=moy_gtu mean=conso_3m;
+ proc summary data=GTU_quart nway;
+            var conso_3m ;
+		    output out=std_gtu std=conso_3m;
+
+
+			DATA _null_;
+			SET moy_gtu;
+			call symput('ARPU_GTU', conso_3m);
+			RUN;
+
+		    DATA _null_;
+			SET std_gtu;
+			call symput('sd_GTU', conso_3m);
+			RUN;
+			%let ECART_quart= %sysfunc(abs(%sysevalf(&ARPU_GTU-&ARPU_cbm_quart)/&ARPU_cbm_quart));
+			%let ECART_TYPE_quart= %sysfunc(abs(%sysevalf(&sd_GTU-&sd_cbm_quart)/&sd_cbm_quart));
+	%end;
+	RUN;
+
+DATA base_hors_gtu;
+SET cbm_zeros cbm_quart cbm_SHV;
+run;
+
+DATA GTU_strata;
+SET GTU_ZEROS GTU_QUART GTU_SHV;
+run;
+
+PROC SQL;
+CREATE TABLE base_animable AS
+	SELECT DISTINCT a.* FROM base_hors_gtu a WHERE a.subs_id NOT IN(SELECT distinct b.subs_id FROM GTU_strata b)
+;
+QUIT;
+
+
+
+ proc summary data=base_animable nway;
+            var conso_3m ;
+		    output out=moy_cbm mean=conso_3m;
+ proc summary data=base_animable nway;
+            var conso_3m ;
+		    output out=std_cbm std=conso_3m;
+
+
+			DATA _null_;
+			SET moy_cbm;
+			call symput('ARPU_CBM', conso_3m);
+			RUN;
+
+		    DATA _null_;
+			SET std_cbm;
+			call symput('sd_cbm', conso_3m);
+			RUN;
+
+ proc summary data=GTU_strata nway;
+            var conso_3m ;
+		    output out=moy_gtu mean=conso_3m;
+
+ proc summary data=GTU_strata nway;
+            var conso_3m ;
+		    output out=std_gtu std=conso_3m;
+
+
+			DATA _null_;
+			SET moy_gtu;
+			call symput('ARPU_GTU', conso_3m);
+			RUN;
+
+		    DATA _null_;
+			SET std_gtu;
+			call symput('sd_gtu', conso_3m);
+			RUN;
+
+			%let ECART=%sysevalf(100*(&ARPU_GTU-&ARPU_CBM)/&ARPU_CBM);
+			%let ECART_TYPE=%sysevalf(100*(&sd_gtu-&sd_cbm)/&sd_cbm);
+
+%put  &ECART;
+
+title 'Statistiques of the targetable base';
+proc means data= base_animable;
+var conso_3m;
+run;
+title 'Statistiques of the UCG base';
+proc means data= GTU_strata;
+var conso_3m;
+run;
+
+
+DATA moy_cbm(keep= CBM_ARPU);
+set moy_cbm;
+CBM_ARPU=conso_3m;
+run;
+
+DATA moy_GTU(keep=GTU_ARPU);
+set moy_GTU;
+GTU_ARPU=conso_3m;
+run;
+
+DATA ECART ;
+SET moy_cbm;
+SET moy_gtu;
+ARPU_GAP=100*abs((GTU_ARPU-CBM_ARPU)/CBM_ARPU);
+run;
+
+DATA std_cbm(keep=CBM_STD_ARPU);
+set std_cbm;
+CBM_STD_ARPU=conso_3m ;
+run;
+
+DATA std_GTU(keep=GTU_STD_ARPU);
+set std_GTU;
+GTU_STD_ARPU=conso_3m;
+run;
+
+DATA ECART_STD ;
+SET std_cbm;
+SET std_gtu;
+GAP_STD=100*(GTU_STD_ARPU-CBM_STD_ARPU)/CBM_STD_ARPU;
+run;
+
+DATA tot_ecart;
+SET ECART;
+SET ECART_STD;
+run;
+title 'Comparaison between the UCG base and the whole CBM base';
+
+PROC PRINT DATA=tot_ecart;
+RUN;
+
+proc datasets lib=work;
+    delete base_hors_gtu cbm_quant cbm_shv temp cbm_zeros moy_cbm_shv gtu_shv moy_gtu sd_gtu quant cbm_quart
+           moy_cbm_quart sd_cbm_quart gtu_quart std_gtu moy_cbm std_cbm ecart_std tot_ecart ECART GTU_ZEROS
+            SD_CBM_SHV SEUIL STD_CBM a aa;
+quit;
+%mend GTU;
+
+
+
+
+
