@@ -1,0 +1,117 @@
+---
+title: "Historisation Cible"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+
+
+## Paramétrage
+Juste une importation de libraries
+
+```{r}
+if (!require(ParamHelpers)){install.packages("ParamHelpers")} ; library(ParamHelpers)
+if (!require(BBmisc)){install.packages("BBmisc")} ; library(BBmisc)
+if (!require(rpart)){install.packages("rpart")} ; library(rpart)
+if (!require(xgboost)){install.packages("xgboost")} ; library(xgboost)
+#if (!require(FSelector)){install.packages("FSelector")} ; library(FSelector)
+if (!require(kernlab)){install.packages("kernlab")} ; library(kernlab)
+if (!require(gbm)){install.packages("gbm")} ; library(gbm)
+if (!require(mlr)){install.packages("mlr")} ; library(mlr)
+
+#Pour la mise en forme du markdown
+if (!require(plotly)){install.packages("plotly")} ; library(plotly) # Pour le heatmap de la matrice de correlation
+if (!require(FFTrees)){install.packages("FFTrees")} ; library(FFTrees) #pour l'arbre la représentation de l'arbre de décision 
+if (!require(shiny)){install.packages("shiny")} ; library(shiny)
+if (!require(qtlcharts)){install.packages("qtlcharts")} ; library(qtlcharts) # Pour la correlation des variables
+if (!require(pander)){install.packages("pander")} ; library(pander) # pour bien afficher les extract de table
+library(dplyr)
+
+library(DT)
+library(data.table)
+library(readr)
+library(lubridate)
+
+```
+
+## Importation de la matrice 
+
+```{r}
+setwd("//cpBIPd2burv2.zcam.ztech/BIP10burs//2403/3509/T8 - FICHIERS PERSO/Ismaila")
+matrice <- read_delim("historique cible unica.csv", 
+    ";", escape_double = FALSE, col_types = cols(DD_ACTI = col_date(format = "%d%b%Y")), 
+    trim_ws = TRUE)
+                    
+
+```
+## Aggregation de la matrice de travail
+```{r}
+#require(zoo)
+matrice$anneemois<-year(matrice$DD_ACTI)*100+month(matrice$DD_ACTI)
+agg<-matrice %>% 
+    group_by(NOM_PLAN_UNICA,NOM_PGM_UNICA,LI_CAMPGN,LI_TECHN_CNTCT,CD_STATU_MTF_CNTCT,
+             SEG_CASA,
+             SEG_MULTICANAL,
+             SEG_POT_EXT,
+             anneemois,
+             DD_ACTI) %>%
+  summarise(
+    Nb_partenaire=n()
+  )
+write.csv(agg,"agg.csv",row.names=F)
+```
+
+## Sommaire du contenu de chaque variable
+```{r}
+p<-agg%>%
+  group_by(anneemois,NOM_PLAN_UNICA)%>%
+   summarise(
+    Nb_partenaire=sum(Nb_partenaire)
+  )%>%
+  ggplot(., aes(x=as.character(anneemois),fill=NOM_PLAN_UNICA,y = Nb_partenaire)) + geom_bar(stat = "identity")
+ggplotly(p)
+```
+On remplace les valeurs manquantes numérique par zéros
+```{r}
+matrice[is.na(matrice)] <- 0
+```
+
+On visualise le top 10 des racs les plus saisis
+```{r}
+a<-as.data.frame(table(matrice$LIPRS))
+
+
+a<-a[order(-a$Freq),]
+a$Var1=as.character(a$Var1)
+x=a[1:10,1]
+y=a[1:10,2]
+plot_ly(
+  x = x,
+  y = y,
+  name = "Distribution des RAC",
+  color=I("darkgreen"),
+  type = "bar"
+)
+
+```
+
+
+
+## Compréhension des indicateurs dans 
+
+```{r}
+histo<-matrice %>% 
+  filter(IDACTC==c("A000545101","A000545102","A000545103"))%>%
+    group_by(LIELST6) %>%
+  summarise(
+    Volume =sum(Nb_cc_du_perimetre),
+    Taux_traitement=100*sum(Nb_CC_Traite)/sum(Nb_cc_du_perimetre),
+    Nb_Contacts=sum(Nb_CC_contactes),
+    Taux_contact=100*sum(Nb_CC_contactes)/sum(Nb_cc_du_perimetre),
+    Taux_concretisation=100*sum(Nb_CC_resultat_IC)/sum(Nb_CC_contactes),
+    Taux_multivente=sum(Nb_Resultats_IC)/sum(Nb_CC_resultat_IC)
+  )
+
+```
+
