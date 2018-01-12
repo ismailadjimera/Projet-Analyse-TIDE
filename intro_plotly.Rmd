@@ -1,0 +1,129 @@
+---
+title: "Introduction au Dashboard avec R plotly"
+author: "Ismaila"
+date: "26 février 2017"
+output: 
+  html_document: 
+    code_folding: hide
+    #theme: cosmo
+    toc: yes
+    toc_depth: 4
+    toc_float: no
+---
+
+
+## Installation de R
+Dans un premier temps télécharger [R](https://cran.r-project.org/bin/windows/base/)
+
+![](r_down.png)
+
+L'environnement par défaut de R n'est pas très sympathique pour coder. pour palier à cela on va utiliser [R Studio](https://www.rstudio.com/products/rstudio/download/).
+Les postes de travail du CABP ne permettent pas l'installation de R, nous allons donc télécharger l'application contenu dans le fichier ZIP.
+![](rstudio_down.png)
+
+Une fois le fichier ZIP télécharger, dézipper le et enregitrer le dans un de vos répertoires personnel.
+Ouvrez le dossier, aller dans le dossier `bin` et exécuter l'application `rstudio`.
+
+
+
+# Installation de plotly
+
+Maintenant que vous disposez de `R`, nous pouvons installer la version stable de R en tapant le bout de code ci-dessous
+
+```{r, message=FALSE, warning=FALSE}
+#install.packages("plotly")
+```
+
+Une fois l'installation de plotly terminé, pour s'assurer que le package a bien été installé, on peut activer la library et faire un petit test pour voir si nous arrivons à plot un objet.
+```{r , message=FALSE, warning=FALSE}
+library(plotly)
+library(dplyr)
+plot_ly(z = ~volcano)
+```
+
+## Example des graphiques avec plotly
+Une visualisation plotly est composée d'un (ou de plusieurs) trace (s), et toute trace a un type spécifique. Une trace ce n'est rien d'autre qu'une couche ainsi par exemple pour tracer un hitogramme compoortant différentes variables, on peut considérer chaque variable comme une couche que l'on rajouterai à la précéédente et ainsi de suite. 
+Pour le moment nous allons commencer sur des types de graphiques avec une trace.
+
+### 1 - le nuage de points
+Le nuage de pooints est utile pour la visualisation de la corrélation entre deux variables quantitatives. Dans plotly, il suffit de fournir `x`et `y` dans la fonction `plot_ly`pour obtenir directement votre nuage de points. Dans les examples qui suivent nous utiliserons des données de R pour effectuer nos representations.
+```{r, message=FALSE, warning=FALSE}
+plot_ly(mpg, x = ~cty, y = ~hwy)
+```
+
+On peut découper le nuage de points part type en faisant resortir les catégories via des couleurs
+```{r, message=FALSE, warning=FALSE}
+plot_ly(mpg, x = ~cty, y = ~hwy,color=~manufacturer)
+```
+
+
+### 2 - les courbes
+La synthaxe pour une courbe est la même que pour un nuage de points à la seule différence qu'il faut acjouter l'argument `mode='lines'` pour préciser à `R` de relier les points entre eux. Voici un exemple où  nous créons nous même notre de jeu de données
+
+```{r, message=FALSE, warning=FALSE}
+# un vecteur de 1 à  100
+x <- c(1:200)
+# Des nombres aléatoires d'une loi normale de moyenne 0
+random_y <- rnorm(200, mean = 0)
+data <- data.frame(x, random_y)
+
+plot_ly(data, x = ~x, y = ~random_y, type = 'scatter', mode = 'lines')
+```
+
+On peut également tracer plusieurs courbes en découpant les données par catégorie, pour example, on utilise les données du prix de ll'immobilier dans l'état du Texas
+```{r, message=FALSE, warning=FALSE}
+plot_ly(txhousing, x = ~date, y = ~median, color=~city, mode='lines')
+```
+
+Ce graph contient trop de courbe qu'il en devient illisible. Pour voir plus claire on peut se concentrer sur les villes où le prix médian de l'immobilier est le plus cher
+```{r, message=FALSE, warning=FALSE}
+
+library(dplyr)
+top5 <- txhousing %>%
+  group_by(city) %>%
+  summarise(m = mean(sales, na.rm = TRUE)) %>%
+  arrange(desc(m)) %>%
+  top_n(5)
+
+top5 <- semi_join(txhousing, top5, by = "city")
+
+plot_ly(data=top5,x = ~date, y = ~median, color=~city, mode='lines')
+```
+
+### 3 - Diagramme en barre
+
+```{r, message=FALSE, warning=FALSE}
+
+auto <- mpg %>%
+  group_by(manufacturer) %>%
+  summarise(nb_auto = length(manufacturer)) %>%
+  arrange(desc(nb_auto))
+
+plot_ly(data=auto,
+  x = ~manufacturer,
+  y = ~nb_auto,
+  type = "bar"
+)
+```
+Diagramme en barre horizontal: il suffit de changer les axes et de préciser l'orientation
+```{r}
+plot_ly(data=auto,
+  y = ~manufacturer,
+  x = ~nb_auto,
+  type = "bar",
+  orientation='horizontal'
+)
+```
+
+### 4 - Camembert
+
+```{r, message=FALSE, warning=FALSE}
+plot_ly(auto,
+  labels = ~manufacturer, values = ~nb_auto,
+  type = "pie",textinfo = 'label+percent'
+) %>%
+  layout(title = '',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+```
+
